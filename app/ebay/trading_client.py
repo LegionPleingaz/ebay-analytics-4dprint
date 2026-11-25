@@ -136,12 +136,26 @@ def get_item(item_id: str, access_token: str, settings: Settings | None = None) 
         if u.text
     ]
 
+    # Un SKU peut n'exister que sur les variantes : le premier suffit.
+    sku_candidates = [item.findtext(f"{{{NS}}}SKU")] + [
+        v.findtext(f"{{{NS}}}SKU")
+        for v in item.findall(f"{{{NS}}}Variations/{{{NS}}}Variation")
+    ]
+    sku = next((s.strip() for s in sku_candidates if s and s.strip()), None)
+
+    # Quantity inclut les unites deja vendues.
+    quantity = item.findtext(f"{{{NS}}}Quantity")
+    if quantity is not None:
+        sold = item.findtext(f"{{{NS}}}SellingStatus/{{{NS}}}QuantitySold") or "0"
+        quantity = str(max(int(quantity) - int(sold), 0))
+
     return {
         "item_id": item.findtext(f"{{{NS}}}ItemID"),
+        "sku": sku,
         "title": item.findtext(f"{{{NS}}}Title"),
         "item_specifics": specifics,
         "price": item.findtext(f"{{{NS}}}StartPrice"),
-        "quantity": item.findtext(f"{{{NS}}}Quantity"),
+        "quantity": quantity,
         "photo_count": len(photo_urls),
     }
 

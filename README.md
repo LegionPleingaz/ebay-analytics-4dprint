@@ -107,6 +107,12 @@ service (sauf le refresh token, qui vit exclusivement en base).
 
 Les migrations (`alembic upgrade head`) sont appliquées à chaque démarrage du conteneur. Port exposé : 8000, sans « Ports Mappings » sur l'hôte.
 
+## Périmètre d'analyse
+
+- Une annonce **sans SKU n'est pas une vente pro** : elle est collectée mais exclue de la détection, des propositions et des analyses pro (`app/business/scope.py`).
+- Analyse au niveau de l'annonce : les variantes (couleurs, tailles, lots) ne sont pas suivies. Pour ces annonces, le prix enregistré est indicatif.
+- L'optimisation des annonces est **mensuelle** ; la collecte reste hebdomadaire pour constituer l'historique.
+
 ## Limites connues
 
 - **Commissions** : pour un vendeur domicilié dans l'UE, la Finances API exige des [signatures numériques](https://developer.ebay.com/develop/guides/digital-signatures-for-apis), pas encore implémentées. En attendant, les runs se terminent en `partial` avec une alerte, `commission_fee` reste vide et `/health` reste `degraded`.

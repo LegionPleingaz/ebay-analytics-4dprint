@@ -38,7 +38,7 @@ def collect_content(db: Session, run: CollectionRun, access_token: str) -> dict[
             db.add(listing)
 
         listing.title = detail["title"]
-        listing.sku = row.get("sku")
+        listing.sku = detail["sku"] or row.get("sku")
         listing.price_value = _parse_price(detail.get("price") or row.get("price"))
         listing.price_currency = row.get("currency") or "EUR"
         listing.quantity = int(detail["quantity"]) if detail.get("quantity") else None

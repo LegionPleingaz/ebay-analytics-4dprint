@@ -93,3 +93,30 @@ def test_get_item_raises_on_failure_ack(settings):
 
     with pytest.raises(TradingApiError):
         get_item("999", "token-abc", settings)
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    "extra,expected_sku",
+    [
+        ("<SKU>4DP-ITEM</SKU><Variations><Variation><SKU>4DP-VAR</SKU></Variation></Variations>", "4DP-ITEM"),
+        ("<Variations><Variation/><Variation><SKU>4DP-VAR</SKU></Variation></Variations>", "4DP-VAR"),
+        ("", None),
+    ],
+)
+def test_get_item_sku_falls_back_to_variations(settings, extra, expected_sku):
+    xml = GET_ITEM_XML.replace("<Quantity>5</Quantity>", "<Quantity>5</Quantity>" + extra)
+    respx.post(ENDPOINT).mock(return_value=httpx.Response(200, content=xml.encode()))
+
+    assert get_item("110123456789", "token-abc", settings)["sku"] == expected_sku
+
+
+@respx.mock
+def test_get_item_quantity_excludes_sold_units(settings):
+    xml = GET_ITEM_XML.replace(
+        "<Quantity>5</Quantity>",
+        "<Quantity>5</Quantity><SellingStatus><QuantitySold>3</QuantitySold></SellingStatus>",
+    )
+    respx.post(ENDPOINT).mock(return_value=httpx.Response(200, content=xml.encode()))
+
+    assert get_item("110123456789", "token-abc", settings)["quantity"] == "2"
