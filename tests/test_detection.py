@@ -110,3 +110,51 @@ def test_title_changed_on_ebay_triggers_cooldown(report_db):
 def test_report_without_finished_run_raises(report_db):
     with pytest.raises(NoData):
         build_report(report_db, Thresholds(), NOW)
+
+
+QUIET = Metrics(impressions=200, views=10, click_through_rate=0.02, transactions=1)
+LONG_BAD = Metrics(impressions=600, views=60, click_through_rate=0.0, transactions=0)
+
+
+def findings(**changes):
+    return evaluate(candidate(metrics=QUIET, **changes), Thresholds(), data_at=NOW, now=NOW)
+
+
+def test_ctr_and_no_sale_use_90_days():
+    result = findings(metrics_90d=LONG_BAD)
+    assert [(f.kind, f.window_days) for f in result] == [(Kind.NO_SALE, 90), (Kind.LOW_CTR, 90)]
+
+
+def test_low_visibility_stays_on_28_days():
+    few = Metrics(impressions=10, views=0, click_through_rate=0.0, transactions=0)
+    result = evaluate(candidate(metrics=few, metrics_90d=LONG_BAD), Thresholds(), data_at=NOW, now=NOW)
+    visibility = [f for f in result if f.kind is Kind.LOW_VISIBILITY]
+    assert [(f.window_days, f.metrics) for f in visibility] == [(28, few)]
+
+
+@pytest.mark.parametrize("days_ago,mixes", [(20, True), (40, False)])
+def test_recent_change_falls_back_to_28_days(days_ago, mixes):
+    changed = NOW - dt.timedelta(days=days_ago)
+    assert findings(metrics_90d=LONG_BAD, last_change_at=changed) == []
+    bad_28 = candidate(metrics=LONG_BAD, metrics_90d=QUIET, last_change_at=changed)
+    result = evaluate(bad_28, Thresholds(), data_at=NOW, now=NOW)
+    assert [(f.window_days, f.mixes_versions) for f in result] == [(28, mixes), (28, mixes)]
+
+
+def test_change_older_than_90_days_uses_long_window():
+    result = findings(metrics_90d=LONG_BAD, last_change_at=NOW - dt.timedelta(days=91))
+    assert {f.window_days for f in result} == {90}
+
+
+def test_report_reads_90_day_snapshot_and_warns_when_absent(report_db, settings):
+    add_run(report_db, 1, NOW)
+    add_listing(report_db, 1, "4DP-A", "Piece", 1, NOW, views=10)
+    report_db.commit()
+    assert "pas de trafic 90 jours" in generate(report_db, settings, NOW)
+
+    report_db.add(ListingSnapshot(listing_id=1, run_id=1, window="90d", impressions_total=900,
+                                  views_total=70, click_through_rate=0.02, transactions=0))
+    report_db.commit()
+    text = generate(report_db, settings, NOW)
+    assert "sur 90 jours : impressions 900" in text
+    assert "pas de trafic 90 jours" not in text

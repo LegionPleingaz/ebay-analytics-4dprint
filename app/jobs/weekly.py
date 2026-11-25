@@ -95,8 +95,8 @@ def run_weekly_job(settings: Settings | None = None) -> int:
         access_token = get_valid_access_token(db, settings)
 
         listings_by_item_id = collect_content(db, run, access_token)
-        collect_traffic(db, run, access_token, listings_by_item_id)
-        warning = collect_orders(
+        traffic_warning = collect_traffic(db, run, access_token, listings_by_item_id)
+        orders_warning = collect_orders(
             db,
             run,
             access_token,
@@ -104,6 +104,7 @@ def run_weekly_job(settings: Settings | None = None) -> int:
             period_end=now,
         )
 
+        warning = "\n".join(filter(None, (traffic_warning, orders_warning))) or None
         run.status = "partial" if warning else "success"
         run.error_message = warning[:2000] if warning else None
         run.finished_at = dt.datetime.now(dt.timezone.utc)

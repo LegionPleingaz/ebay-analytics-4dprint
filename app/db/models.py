@@ -117,7 +117,7 @@ class ListingSnapshot(Base):
         UniqueConstraint(
             "listing_id", "run_id", "window", name="uq_listing_snapshot_listing_run_window"
         ),
-        CheckConstraint('"window" in (\'7d\',\'28d\')', name="ck_listing_snapshot_window"),
+        CheckConstraint("\"window\" in ('7d','28d','90d')", name="ck_listing_snapshot_window"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

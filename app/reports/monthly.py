@@ -68,6 +68,7 @@ class Report:
     findings: list[Finding]
     skipped: dict[Skip, list[Candidate]]
     changes_last_7_days: int
+    has_90d: bool
 
 
 def _aware(value: dt.datetime | None) -> dt.datetime | None:
@@ -95,6 +96,18 @@ def _observed_change_at(db: Session, listing_id: int) -> dt.datetime | None:
     return _aware(changed_at)
 
 
+def _metrics(snapshot: ListingSnapshot | None) -> Metrics | None:
+    if snapshot is None:
+        return None
+    ctr = snapshot.click_through_rate
+    return Metrics(
+        impressions=snapshot.impressions_total,
+        views=snapshot.views_total,
+        click_through_rate=None if ctr is None else float(ctr),
+        transactions=snapshot.transactions,
+    )
+
+
 def build_report(db: Session, thresholds: Thresholds, now: dt.datetime) -> Report:
     run = db.execute(
         select(CollectionRun)
@@ -108,6 +121,14 @@ def build_report(db: Session, thresholds: Thresholds, now: dt.datetime) -> Repor
 
     # Seules les annonces vues par ce run : une annonce terminee garde son
     # dernier statut "Active" en base.
+    long_window = {
+        s.listing_id: s
+        for s in db.execute(
+            select(ListingSnapshot).where(
+                ListingSnapshot.run_id == run.id, ListingSnapshot.window == "90d"
+            )
+        ).scalars()
+    }
     rows = db.execute(
         select(Listing, ListingContentSnapshot, ListingSnapshot)
         .join(ListingContentSnapshot, ListingContentSnapshot.listing_id == Listing.id)
@@ -136,22 +157,14 @@ def build_report(db: Session, thresholds: Thresholds, now: dt.datetime) -> Repor
             )
             if c
         ]
-        metrics = None
-        if traffic is not None:
-            ctr = traffic.click_through_rate
-            metrics = Metrics(
-                impressions=traffic.impressions_total,
-                views=traffic.views_total,
-                click_through_rate=None if ctr is None else float(ctr),
-                transactions=traffic.transactions,
-            )
         candidate = Candidate(
             item_id=listing.ebay_item_id,
             title=content.title,
             start_time=_aware(listing.ebay_start_time),
             quantity=content.quantity,
             specifics_count=len(content.item_specifics or {}),
-            metrics=metrics,
+            metrics=_metrics(traffic),
+            metrics_90d=_metrics(long_window.get(listing.id)),
             last_change_at=max(changes, default=None),
         )
         result = evaluate(candidate, thresholds, data_at=data_at, now=now)
@@ -167,21 +180,24 @@ def build_report(db: Session, thresholds: Thresholds, now: dt.datetime) -> Repor
         findings=sorted(findings, key=sort_key),
         skipped=dict(skipped),
         changes_last_7_days=count_changes_in_last_7_days(db, now),
+        has_90d=bool(long_window),
     )
 
 
 def _finding_line(finding: Finding) -> str:
     c = finding.candidate
-    m = c.metrics
-    assert m is not None
+    m = finding.metrics
     ctr = "n/d" if m.click_through_rate is None else f"{m.click_through_rate:.0%}"
     line = (
         f"- {c.title}\n"
         f"  https://www.ebay.fr/itm/{c.item_id}\n"
-        f"  impressions {m.impressions} | vues {m.views} | clics {ctr} | ventes {m.transactions}"
+        f"  sur {finding.window_days} jours : impressions {m.impressions} | vues {m.views} "
+        f"| clics {ctr} | ventes {m.transactions}"
     )
     if finding.kind is Kind.LOW_VISIBILITY:
         line += f" | caractéristiques renseignées : {c.specifics_count}"
+    if finding.mixes_versions:
+        line += "\n  Attention : cette période inclut encore l'ancienne version de l'annonce."
     return line
 
 
@@ -192,12 +208,17 @@ def render(report: Report, thresholds: Thresholds, settings: Settings) -> str:
     skipped_count = sum(len(v) for v in report.skipped.values())
     lines = [
         "RAPPORT MENSUEL - annonces pro 4DPrint",
-        f"Collecte du {local(run.started_at)} (statut {run.status}), fenêtre de 28 jours",
+        f"Collecte du {local(run.started_at)} (statut {run.status})",
     ]
     if run.traffic_report_generated_at_28d:
         lines.append(f"Trafic mis à jour par eBay le {local(run.traffic_report_generated_at_28d)}")
     if report.generated_at - _aware(run.started_at) > STALE_DATA:
         lines.append("ATTENTION : collecte de plus de 9 jours, vérifier la tâche planifiée.")
+    if not report.has_90d:
+        lines.append(
+            "ATTENTION : pas de trafic 90 jours dans cette collecte, taux de clic et "
+            "ventes évalués sur 28 jours."
+        )
     lines += [
         "",
         f"{report.pro_count} annonces pro : {len(flagged)} à examiner, "
@@ -241,6 +262,8 @@ def render(report: Report, thresholds: Thresholds, settings: Settings) -> str:
         f"{thresholds.ctr_min:.0%} des {thresholds.ctr_min_impressions} impressions ; "
         f"0 vente avec plus de {thresholds.no_sale_views_over} vues. "
         f"Pause de {COOLDOWN_DAYS} jours après modification.",
+        "Visibilité jugée sur 28 jours ; taux de clic et ventes sur 90 jours (28 si "
+        "l'annonce a changé dans les 90 derniers jours).",
         "Les vues de l'annonce servent d'approximation des clics. Aucune annonce n'est modifiée.",
     ]
     return "\n".join(lines) + "\n"

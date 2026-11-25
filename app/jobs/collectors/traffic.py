@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+import httpx
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,10 @@ from app.ebay import analytics_client
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# eBay limite la periode a 90 jours et arrondit aux journees entieres :
+# 89 jours d'ecart couvrent 90 jours calendaires.
+LONG_WINDOW_DAYS = 89
 
 _METRIC_TO_COLUMN = {
     "LISTING_IMPRESSION_SEARCH_RESULTS_PAGE": "impressions_search_results",
@@ -111,7 +116,8 @@ def collect_traffic(
     run: CollectionRun,
     access_token: str,
     listings_by_item_id: dict[str, Listing],
-) -> None:
+) -> str | None:
+    """Retourne un avertissement si la fenetre 90 jours n'a pas pu etre collectee."""
     now = run.started_at
 
     run.traffic_report_generated_at_7d = _collect_window(
@@ -120,4 +126,13 @@ def collect_traffic(
     run.traffic_report_generated_at_28d = _collect_window(
         db, run, access_token, listings_by_item_id, window="28d", days=28, now=now
     )
+    warning = None
+    try:
+        _collect_window(
+            db, run, access_token, listings_by_item_id,
+            window="90d", days=LONG_WINDOW_DAYS, now=now,
+        )
+    except (httpx.HTTPError, ValueError) as exc:
+        warning = f"Trafic 90 jours non collecte : {exc}"
     db.commit()
+    return warning

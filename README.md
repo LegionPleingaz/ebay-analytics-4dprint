@@ -131,7 +131,10 @@ pour cela une surveillance externe de `GET /health/live`.
 
 ## Rapport mensuel
 
-Détection en lecture seule sur les annonces pro, à partir de la dernière collecte (fenêtre 28 jours, jamais 7 jours).
+Détection en lecture seule sur les annonces pro, à partir de la dernière collecte (jamais la fenêtre 7 jours).
+
+- Très faible visibilité : 28 jours.
+- Taux de clic et absence de vente : 90 jours (collecte sur 89 jours d'écart). Si l'annonce a changé dans les 90 jours : 28 jours, avec avertissement si cette période inclut l'ancienne version. Les changements antérieurs au début de l'historique et absents de `change_log` ne sont pas connus.
 
 - Page protégée par `ADMIN_PASSWORD` : `GET /report`
 - Terminal : `python -m app.reports.monthly` (ajouter `--email` pour l'envoyer)

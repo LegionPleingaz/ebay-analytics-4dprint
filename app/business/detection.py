@@ -1,6 +1,8 @@
 """Detection des problemes d'annonces. Logique pure, sans base de donnees.
 
-Toutes les regles s'appuient sur la fenetre 28 jours, jamais sur 7 jours.
+La fenetre 7 jours n'est jamais utilisee. La visibilite se juge sur 28 jours ;
+le taux de clic et l'absence de vente sur 90 jours, sauf si l'annonce a change
+pendant ces 90 jours (retour a 28 jours pour ne pas melanger deux versions).
 En cas de base insuffisante, aucune conclusion n'est tiree.
 """
 
@@ -14,6 +16,7 @@ from app.business.cooldown import is_cooldown_active
 from app.business.thresholds import Thresholds
 
 WINDOW_DAYS = 28
+LONG_WINDOW_DAYS = 90
 
 
 @dataclass(frozen=True)
@@ -31,8 +34,9 @@ class Candidate:
     start_time: dt.datetime | None
     quantity: int | None
     specifics_count: int
-    metrics: Metrics | None  # None : absente du rapport de trafic
+    metrics: Metrics | None  # 28 jours ; None : absente du rapport de trafic
     last_change_at: dt.datetime | None
+    metrics_90d: Metrics | None = None
 
 
 class Kind(str, Enum):
@@ -53,6 +57,9 @@ class Skip(str, Enum):
 class Finding:
     kind: Kind
     candidate: Candidate
+    metrics: Metrics  # celles qui ont declenche l'alerte
+    window_days: int
+    mixes_versions: bool = False  # la periode contient l'ancienne version
 
 
 def evaluate(
@@ -74,30 +81,38 @@ def evaluate(
     if m is None or m.impressions is None:
         return Skip.NO_DATA
 
-    kinds: list[Kind] = []
+    changed_ago = None if candidate.last_change_at is None else data_at - candidate.last_change_at
+    changed_recently = changed_ago is not None and changed_ago < dt.timedelta(days=LONG_WINDOW_DAYS)
+    long_metrics, long_days = m, WINDOW_DAYS
+    if not changed_recently and candidate.metrics_90d is not None:
+        long_metrics, long_days = candidate.metrics_90d, LONG_WINDOW_DAYS
+    mixes = changed_ago is not None and changed_ago < dt.timedelta(days=WINDOW_DAYS)
+
+    findings: list[Finding] = []
+    lm = long_metrics
     if (
-        m.views is not None
-        and m.transactions is not None
-        and m.transactions == 0
-        and m.views > thresholds.no_sale_views_over
+        lm.views is not None
+        and lm.transactions is not None
+        and lm.transactions == 0
+        and lm.views > thresholds.no_sale_views_over
     ):
-        kinds.append(Kind.NO_SALE)
+        findings.append(Finding(Kind.NO_SALE, candidate, lm, long_days, mixes))
     # eBay semble renvoyer le CTR avec 2 decimales : "< 0.01" ne retient que les
     # valeurs surement sous 1 %, au prix de quelques cas proches non signales.
     if (
-        m.impressions >= thresholds.ctr_min_impressions
-        and m.click_through_rate is not None
-        and m.click_through_rate < thresholds.ctr_min
+        lm.impressions is not None
+        and lm.impressions >= thresholds.ctr_min_impressions
+        and lm.click_through_rate is not None
+        and lm.click_through_rate < thresholds.ctr_min
     ):
-        kinds.append(Kind.LOW_CTR)
+        findings.append(Finding(Kind.LOW_CTR, candidate, lm, long_days, mixes))
     if m.impressions <= thresholds.low_impressions_max:
-        kinds.append(Kind.LOW_VISIBILITY)
-    return [Finding(kind, candidate) for kind in kinds]
+        findings.append(Finding(Kind.LOW_VISIBILITY, candidate, m, WINDOW_DAYS, mixes))
+    return findings
 
 
 def sort_key(finding: Finding) -> tuple[int, int]:
-    m = finding.candidate.metrics
-    assert m is not None
+    m = finding.metrics
     weight = {
         Kind.NO_SALE: -(m.views or 0),
         Kind.LOW_CTR: -(m.impressions or 0),
