@@ -87,7 +87,10 @@ Fréquence recommandée : une fois par semaine (ex. lundi 06:00 Europe/Paris).
 | `EBAY_TRADING_COMPATIBILITY_LEVEL` | Compatibility level Trading API |
 | `EBAY_MARKETPLACE_ID` | `EBAY_FR` |
 | `ADMIN_PASSWORD` | Obligatoire, 16 caractères minimum, aléatoire. Protège `/oauth/login` |
-| `ALERTING_BACKEND` | `log` en phase 1 |
+| `ALERTING_BACKEND` | `log` (défaut) ou `email` |
+| `SMTP_HOST` / `SMTP_PORT` | Serveur d'envoi ; 587 (STARTTLS, défaut) ou 465 (TLS) |
+| `SMTP_USER` / `SMTP_PASSWORD` | Identifiants SMTP (mot de passe en secret) |
+| `ALERT_EMAIL_FROM` / `ALERT_EMAIL_TO` | Expéditeur et destinataire des alertes |
 | `APP_TIMEZONE` | `Europe/Paris` |
 | `LOG_LEVEL` | `INFO` par défaut |
 
@@ -106,6 +109,19 @@ service (sauf le refresh token, qui vit exclusivement en base).
 7. Check de santé Coolify : `GET /health/live` (le process répond). **Pas** `/health`, qui renvoie 503 tant que l'OAuth et un premier run réussi n'ont pas eu lieu : le proxy ne routerait jamais vers l'app. `/health` sert à la surveillance externe.
 
 Les migrations (`alembic upgrade head`) sont appliquées à chaque démarrage du conteneur. Port exposé : 8000, sans « Ports Mappings » sur l'hôte.
+
+## Alertes et surveillance
+
+Le job alerte sur ses échecs et sur les runs partiels. En plus, l'application web
+vérifie toutes les 6 heures : collecte absente ou en retard (plus de 9 jours),
+dernier run en échec ou bloqué, autorisation eBay absente, refusée ou expirant
+dans moins de 30 jours, base injoignable. Une même alerte est rappelée au plus
+tous les 3 jours (table `alert_state`).
+
+Tester l'envoi, dans le conteneur : `python -m app.alerting.test`
+
+Limite : si le serveur ou le conteneur est arrêté, aucune alerte ne part. Il faut
+pour cela une surveillance externe de `GET /health/live`.
 
 ## Périmètre d'analyse
 

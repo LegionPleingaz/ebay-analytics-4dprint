@@ -57,6 +57,7 @@ def health(response: Response, db: Session = Depends(get_db)) -> dict:
     ).scalar_one_or_none()
     if last_run is None:
         checks["last_weekly_run"] = {"ok": False, "error": "aucun run de collecte encore effectue"}
+        overall_ok = False
     else:
         is_stale = (now - last_run.started_at) > STALE_RUN_THRESHOLD
         run_ok = last_run.status == "success" and not is_stale

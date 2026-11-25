@@ -269,3 +269,13 @@ class ChangeLog(Base):
     )
     evaluation_verdict: Mapped[str | None] = mapped_column(default=None)
     evaluation_notes: Mapped[str | None] = mapped_column(default=None)
+
+
+class AlertState(Base):
+    """Dernier envoi de chaque alerte de surveillance, pour ne pas la repeter
+    a chaque verification ni apres chaque redeploiement."""
+
+    __tablename__ = "alert_state"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    last_sent_at: Mapped[dt.datetime] = mapped_column()

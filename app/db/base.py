@@ -23,7 +23,13 @@ _SessionLocal = None
 def get_engine():
     global _engine
     if _engine is None:
-        _engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+        _engine = create_engine(
+            get_settings().database_url,
+            pool_pre_ping=True,
+            # Sinon les messages d'erreur SQL contiennent les parametres, donc
+            # les tokens OAuth, qui finiraient dans les logs et les alertes.
+            hide_parameters=True,
+        )
     return _engine
 
 

@@ -12,10 +12,11 @@ class LogAlerter(Alerter):
     canal reel (email/Slack) soit branche sur l'interface Alerter.
     """
 
-    def alert(self, *, subject: str, message: str, severity: str = "error") -> None:
+    def alert(self, *, subject: str, message: str, severity: str = "error") -> bool:
         log_method = {
             "warning": logger.warning,
             "error": logger.error,
             "critical": logger.critical,
         }.get(severity, logger.error)
         log_method("alert", subject=subject, message=message, severity=severity)
+        return True

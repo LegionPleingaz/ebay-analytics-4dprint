@@ -12,6 +12,10 @@ from abc import ABC, abstractmethod
 
 class Alerter(ABC):
     @abstractmethod
-    def alert(self, *, subject: str, message: str, severity: str = "error") -> None:
-        """Emet une alerte. severity: 'warning' | 'error' | 'critical'."""
+    def alert(self, *, subject: str, message: str, severity: str = "error") -> bool:
+        """Emet une alerte. severity: 'warning' | 'error' | 'critical'.
+
+        Retourne False si l'envoi a echoue. Ne leve jamais : un probleme
+        d'alerting ne doit pas masquer la panne signalee.
+        """
         raise NotImplementedError

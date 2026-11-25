@@ -21,6 +21,7 @@ def db_session():
             models.ChangeProposal.__table__,
             models.ChangeLog.__table__,
             models.OAuthToken.__table__,
+            models.AlertState.__table__,
         ],
     )
     # expire_on_commit=False : coherent avec app.db.base.get_session_factory, et
