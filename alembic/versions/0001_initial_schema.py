@@ -101,7 +101,7 @@ def upgrade() -> None:
         sa.Column("views_total", sa.Integer(), nullable=True),
         sa.Column("sales_conversion_rate", sa.Numeric(7, 4), nullable=True),
         sa.Column("transactions", sa.Integer(), nullable=True),
-        sa.CheckConstraint("window in ('7d','28d')", name="ck_listing_snapshot_window"),
+        sa.CheckConstraint('"window" in (\'7d\',\'28d\')', name="ck_listing_snapshot_window"),
         sa.ForeignKeyConstraint(["listing_id"], ["listings.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["run_id"], ["collection_runs.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),

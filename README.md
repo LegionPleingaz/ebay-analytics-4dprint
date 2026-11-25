@@ -46,7 +46,7 @@ curl http://localhost:8000/health
 
 ## Parcours OAuth
 
-1. Ouvrir `GET /oauth/login` dans un navigateur (redirige vers le consentement eBay).
+1. Ouvrir `GET /oauth/login` dans un navigateur. Le navigateur demande une authentification : identifiant libre, mot de passe = `ADMIN_PASSWORD`. Puis redirection vers le consentement eBay (à terminer en moins de 10 minutes).
 2. Après acceptation, eBay redirige vers `EBAY_OAUTH_REDIRECT_URI` avec un paramètre `code`, géré par `GET /oauth/callback`.
 3. Le refresh token est alors persisté dans la table `oauth_tokens` (une seule ligne, id=1). **Le refresh token n'est jamais stocké en variable d'environnement** : une variable Coolify ne se met pas à jour automatiquement, donc le seul état durable est la base.
 4. Les appels API suivants rafraîchissent automatiquement l'access token 5 minutes avant expiration (`app/ebay/oauth.get_valid_access_token`), avec réécriture en base à chaque refresh.
@@ -86,6 +86,7 @@ Fréquence recommandée : une fois par semaine (ex. lundi 06:00 Europe/Paris).
 | `EBAY_TRADING_SITE_ID` | Site ID Trading API (71 = France) |
 | `EBAY_TRADING_COMPATIBILITY_LEVEL` | Compatibility level Trading API |
 | `EBAY_MARKETPLACE_ID` | `EBAY_FR` |
+| `ADMIN_PASSWORD` | Obligatoire, 16 caractères minimum, aléatoire. Protège `/oauth/login` |
 | `ALERTING_BACKEND` | `log` en phase 1 |
 | `APP_TIMEZONE` | `Europe/Paris` |
 | `LOG_LEVEL` | `INFO` par défaut |
@@ -102,7 +103,15 @@ service (sauf le refresh token, qui vit exclusivement en base).
 4. Exposer le domaine HTTPS de l'app et déclarer `https://<domaine>/oauth/callback` comme URL de redirection du RuName côté eBay Developer.
 5. Au premier déploiement, effectuer le parcours OAuth (`/oauth/login`) une fois depuis un navigateur pour peupler `oauth_tokens`.
 6. Créer une Scheduled Task Coolify sur l'app : commande `python -m app.jobs.weekly`, fréquence hebdomadaire.
-7. Configurer un check de santé Coolify sur `GET /health` (déjà utilisé par le `HEALTHCHECK` du Dockerfile).
+7. Check de santé Coolify : `GET /health/live` (le process répond). **Pas** `/health`, qui renvoie 503 tant que l'OAuth et un premier run réussi n'ont pas eu lieu : le proxy ne routerait jamais vers l'app. `/health` sert à la surveillance externe.
+
+Les migrations (`alembic upgrade head`) sont appliquées à chaque démarrage du conteneur. Port exposé : 8000, sans « Ports Mappings » sur l'hôte.
+
+## Limites connues
+
+- **Commissions** : pour un vendeur domicilié dans l'UE, la Finances API exige des [signatures numériques](https://developer.ebay.com/develop/guides/digital-signatures-for-apis), pas encore implémentées. En attendant, les runs se terminent en `partial` avec une alerte, `commission_fee` reste vide et `/health` reste `degraded`.
+- **Rapport de trafic** : le parsing suit la spécification OpenAPI (miroir tiers) ; à confirmer sur la première réponse réelle.
+- Aucun appel n'a encore été fait contre la vraie API eBay.
 
 ## Tests
 

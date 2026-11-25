@@ -29,6 +29,10 @@ from app.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
+# Fenetre glissante : un run le lundi matin doit couvrir les semaines passees
+# (et rattraper un run manque). Les upserts evitent les doublons.
+ORDERS_LOOKBACK = dt.timedelta(days=90)
+
 
 def _iso_week_monday(d: dt.date) -> dt.date:
     return d - dt.timedelta(days=d.weekday())
@@ -92,18 +96,25 @@ def run_weekly_job(settings: Settings | None = None) -> int:
 
         listings_by_item_id = collect_content(db, run, access_token)
         collect_traffic(db, run, access_token, listings_by_item_id)
-        collect_orders(
+        warning = collect_orders(
             db,
             run,
             access_token,
-            period_start=dt.datetime.combine(period_start, dt.time.min, tzinfo=settings.tzinfo),
+            period_start=now - ORDERS_LOOKBACK,
             period_end=now,
         )
 
-        run.status = "success"
+        run.status = "partial" if warning else "success"
+        run.error_message = warning[:2000] if warning else None
         run.finished_at = dt.datetime.now(dt.timezone.utc)
         db.commit()
-        logger.info("weekly_job.success", run_id=run.id)
+        if warning:
+            alerter.alert(
+                subject="Collecte hebdomadaire eBay : partielle",
+                message=warning,
+                severity="warning",
+            )
+        logger.info("weekly_job.done", run_id=run.id, status=run.status)
         return 0
 
     except OAuthError as exc:

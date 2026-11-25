@@ -1,10 +1,8 @@
 """Collecte du trafic (Sell Analytics getTrafficReport), fenetres 7j et 28j.
 
-NB parsing : la forme exacte du payload (dimensionValues/metricValues) suit la
-doc eBay au moment de l'ecriture ; a reverifier contre une reponse reelle
-(sandbox ou prod) avant mise en prod, la doc en ligne n'etant pas garantie
-figee. Le parsing est defensif (.get()) pour ne pas casser sur un champ
-inattendu plutot que de silencieusement mal calculer une metrique.
+NB parsing : structure Report/Header/Record tiree de la specification OpenAPI
+(miroir tiers). L'alignement metricValues <-> header.metrics est a confirmer sur
+la premiere reponse reelle.
 """
 
 from __future__ import annotations
@@ -33,20 +31,30 @@ _METRIC_TO_COLUMN = {
 
 
 def _extract_item_id(record: dict) -> str | None:
-    for dv in record.get("dimensionValues", []):
-        if dv.get("dimensionKey") == "LISTING":
-            return dv.get("dimensionValue")
-    return None
+    """Avec dimension=LISTING, la seule valeur de dimension est l'ID d'annonce."""
+    values = record.get("dimensionValues", [])
+    return str(values[0]["value"]) if values and values[0].get("value") else None
 
 
-def _extract_metrics(record: dict) -> dict:
-    values = {}
-    for mv in record.get("metricValues", []):
-        column = _METRIC_TO_COLUMN.get(mv.get("metricKey"))
+def _metric_keys(report: dict) -> list[str]:
+    return [m["key"] for m in report.get("header", {}).get("metrics", [])]
+
+
+def _extract_metrics(record: dict, metric_keys: list[str]) -> dict:
+    """Les metricValues n'ont pas de nom : leur ordre suit celui de l'en-tete."""
+    values = record.get("metricValues", [])
+    if len(values) != len(metric_keys):
+        raise ValueError(
+            f"Rapport de trafic incoherent : {len(metric_keys)} metriques en en-tete, "
+            f"{len(values)} valeurs"
+        )
+    metrics = {}
+    for key, entry in zip(metric_keys, values):
+        column = _METRIC_TO_COLUMN.get(key)
         if column:
-            raw = mv.get("value")
-            values[column] = float(raw) if raw not in (None, "") else None
-    return values
+            raw = entry.get("value") if entry.get("applicable", True) else None
+            metrics[column] = float(raw) if raw not in (None, "") else None
+    return metrics
 
 
 def _collect_window(
@@ -62,12 +70,17 @@ def _collect_window(
     start = now - dt.timedelta(days=days)
     report = analytics_client.get_traffic_report(access_token, start=start, end=now)
 
-    generated_at_raw = report.get("generatedDate") or report.get("lastUpdatedDate")
+    generated_at_raw = report.get("lastUpdatedDate")
     generated_at = None
     if generated_at_raw:
         generated_at = dt.datetime.fromisoformat(generated_at_raw.replace("Z", "+00:00"))
 
     records = report.get("records", [])
+    metric_keys = _metric_keys(report)
+    missing = set(_METRIC_TO_COLUMN) - set(metric_keys)
+    if records and missing:
+        # Echouer bruyamment plutot que d'enregistrer des lignes vides.
+        raise ValueError(f"Metriques absentes du rapport de trafic : {sorted(missing)}")
     logger.info("collect.traffic.window", window=window, records=len(records))
 
     for record in records:
@@ -77,7 +90,7 @@ def _collect_window(
             logger.warning("collect.traffic.unknown_listing", item_id=item_id)
             continue
 
-        metrics = _extract_metrics(record)
+        metrics = _extract_metrics(record, metric_keys)
         stmt = pg_insert(ListingSnapshot).values(
             listing_id=listing.id,
             run_id=run.id,

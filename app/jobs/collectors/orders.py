@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import select
+import httpx
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -27,11 +28,19 @@ def collect_orders(
     *,
     period_start: dt.datetime,
     period_end: dt.datetime,
-) -> None:
+) -> str | None:
+    """Retourne un avertissement si les commissions n'ont pas pu etre collectees."""
     orders = fulfillment_client.get_orders(access_token, start=period_start, end=period_end)
-    transactions = finances_client.get_transactions(
-        access_token, start=period_start, end=period_end
-    )
+    warning = None
+    try:
+        transactions = finances_client.get_transactions(
+            access_token, start=period_start, end=period_end
+        )
+    except httpx.HTTPError as exc:
+        # Vendeur UE : la Finances API exige des signatures numeriques, pas
+        # encore implementees. On garde les commandes, le run sera "partial".
+        transactions = []
+        warning = f"Commissions non collectees (Finances API) : {exc}"
     fees = finances_client.fees_by_order_line_item(transactions)
 
     logger.info("collect.orders", orders=len(orders), transactions=len(transactions))
@@ -80,9 +89,18 @@ def collect_orders(
                 commission_fee=fee,
                 commission_currency=line_item.get("lineItemCost", {}).get("currency", "EUR"),
             )
-            item_stmt = item_stmt.on_conflict_do_nothing(
-                index_elements=["order_id", "ebay_line_item_id"]
+            item_stmt = item_stmt.on_conflict_do_update(
+                index_elements=["order_id", "ebay_line_item_id"],
+                set_={
+                    "listing_id": func.coalesce(
+                        item_stmt.excluded.listing_id, OrderItem.listing_id
+                    ),
+                    "commission_fee": func.coalesce(
+                        item_stmt.excluded.commission_fee, OrderItem.commission_fee
+                    ),
+                },
             )
             db.execute(item_stmt)
 
     db.commit()
+    return warning

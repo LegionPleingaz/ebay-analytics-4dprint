@@ -1,6 +1,7 @@
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,9 @@ class Settings(BaseSettings):
     ebay_trading_site_id: int = 71
     ebay_trading_compatibility_level: int = 1413
     ebay_marketplace_id: str = "EBAY_FR"
+
+    # Protege /oauth/login (HTTP Basic) et signe le parametre state.
+    admin_password: str = Field(min_length=16)
 
     alerting_backend: str = "log"
 

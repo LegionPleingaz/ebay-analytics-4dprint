@@ -55,7 +55,7 @@ def get_traffic_report(
         },
         params={
             "dimension": "LISTING",
-            "filter": f"marketplaceIds:{{{settings.ebay_marketplace_id}}},"
+            "filter": f"marketplace_ids:{{{settings.ebay_marketplace_id}}},"
             f"date_range:{_iso_range(start, end)}",
             "metric": ",".join(METRICS),
         },

@@ -45,13 +45,14 @@ def _basic_auth_header(settings: Settings) -> str:
     return base64.b64encode(raw).decode()
 
 
-def build_consent_url(settings: Settings | None = None) -> str:
+def build_consent_url(settings: Settings | None = None, *, state: str) -> str:
     settings = settings or get_settings()
     params = {
         "client_id": settings.ebay_client_id,
         "redirect_uri": settings.ebay_ru_name,
         "response_type": "code",
         "scope": " ".join(SCOPES),
+        "state": state,
     }
     return f"{settings.ebay_auth_base}/oauth2/authorize?{urllib.parse.urlencode(params)}"
 

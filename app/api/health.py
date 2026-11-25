@@ -17,6 +17,13 @@ router = APIRouter()
 STALE_RUN_THRESHOLD = dt.timedelta(days=9)
 
 
+@router.get("/health/live")
+def live() -> dict:
+    """Le process repond. Utilise par Docker/Coolify : ne doit dependre ni d'OAuth
+    ni du dernier run, sinon le proxy ne route jamais vers /oauth/login."""
+    return {"status": "ok"}
+
+
 @router.get("/health")
 def health(response: Response, db: Session = Depends(get_db)) -> dict:
     checks: dict[str, dict] = {}
@@ -26,8 +33,10 @@ def health(response: Response, db: Session = Depends(get_db)) -> dict:
         db.execute(text("SELECT 1"))
         checks["database"] = {"ok": True}
     except Exception as exc:  # noqa: BLE001
-        checks["database"] = {"ok": False, "error": str(exc)}
-        overall_ok = False
+        checks["database"] = {"ok": False, "error": type(exc).__name__}
+        # Endpoint public : pas de detail. Les requetes suivantes echoueraient aussi.
+        response.status_code = 503
+        return {"status": "degraded", "checks": checks}
 
     token = db.get(OAuthToken, 1)
     now = dt.datetime.now(dt.timezone.utc)

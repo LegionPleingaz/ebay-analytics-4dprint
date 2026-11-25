@@ -37,6 +37,7 @@ def settings() -> Settings:
         database_url="sqlite:///:memory:",
         ebay_env="sandbox",
         ebay_client_id="test-client-id",
+        admin_password="test-admin-password",
         ebay_client_secret="test-client-secret",
         ebay_ru_name="test-ru-name",
         ebay_oauth_redirect_uri="https://example.test/oauth/callback",

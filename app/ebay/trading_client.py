@@ -15,6 +15,7 @@ des corrections = phase suivante, hors perimetre).
 
 from __future__ import annotations
 
+import datetime as dt
 from xml.etree import ElementTree as ET
 
 import httpx
@@ -61,38 +62,49 @@ def _post(call_name: str, xml_body: str, access_token: str, settings: Settings) 
 
 
 def get_seller_list(access_token: str, settings: Settings | None = None) -> list[dict]:
-    """Recupere l'ensemble des annonces actives en un seul appel (<=200, cf. brief)."""
+    """Recupere les annonces actives.
+
+    GetSellerList exige un filtre StartTime* ou EndTime* de moins de 120 jours.
+    "Fin dans les 119 prochains jours" couvre les annonces GTC (renouvelees
+    chaque mois).
+    """
     settings = settings or get_settings()
-    xml_body = f"""<?xml version="1.0" encoding="utf-8"?>
+    now = dt.datetime.now(dt.timezone.utc)
+    end_from = now.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    end_to = (now + dt.timedelta(days=119)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    items: list[dict] = []
+    page_number = 1
+    while True:
+        xml_body = f"""<?xml version="1.0" encoding="utf-8"?>
 <GetSellerListRequest xmlns="{NS}">
   <ErrorLanguage>en_US</ErrorLanguage>
   <WarningLevel>High</WarningLevel>
   <GranularityLevel>Fine</GranularityLevel>
+  <EndTimeFrom>{end_from}</EndTimeFrom>
+  <EndTimeTo>{end_to}</EndTimeTo>
   <Pagination>
     <EntriesPerPage>200</EntriesPerPage>
-    <PageNumber>1</PageNumber>
+    <PageNumber>{page_number}</PageNumber>
   </Pagination>
 </GetSellerListRequest>"""
-    root = _post("GetSellerList", xml_body, access_token, settings)
-    items = []
-    for item in root.findall(f".//{{{NS}}}Item"):
-        items.append(
-            {
-                "item_id": item.findtext(f"{{{NS}}}ItemID"),
-                "sku": item.findtext(f"{{{NS}}}SKU"),
-                "title": item.findtext(f"{{{NS}}}Title"),
-                "price": item.findtext(f"{{{NS}}}SellingStatus/{{{NS}}}CurrentPrice"),
-                "currency": item.find(
-                    f"{{{NS}}}SellingStatus/{{{NS}}}CurrentPrice"
-                ).attrib.get("currencyID")
-                if item.find(f"{{{NS}}}SellingStatus/{{{NS}}}CurrentPrice") is not None
-                else None,
-                "quantity": item.findtext(f"{{{NS}}}Quantity"),
-                "status": item.findtext(f"{{{NS}}}SellingStatus/{{{NS}}}ListingStatus"),
-                "start_time": item.findtext(f"{{{NS}}}ListingDetails/{{{NS}}}StartTime"),
-            }
-        )
-    return items
+        root = _post("GetSellerList", xml_body, access_token, settings)
+        for item in root.findall(f".//{{{NS}}}Item"):
+            price = item.find(f"{{{NS}}}SellingStatus/{{{NS}}}CurrentPrice")
+            items.append(
+                {
+                    "item_id": item.findtext(f"{{{NS}}}ItemID"),
+                    "sku": item.findtext(f"{{{NS}}}SKU"),
+                    "title": item.findtext(f"{{{NS}}}Title"),
+                    "price": price.text if price is not None else None,
+                    "currency": price.attrib.get("currencyID") if price is not None else None,
+                    "quantity": item.findtext(f"{{{NS}}}Quantity"),
+                    "status": item.findtext(f"{{{NS}}}SellingStatus/{{{NS}}}ListingStatus"),
+                    "start_time": item.findtext(f"{{{NS}}}ListingDetails/{{{NS}}}StartTime"),
+                }
+            )
+        if root.findtext(f"{{{NS}}}HasMoreItems") != "true":
+            return items
+        page_number += 1
 
 
 def get_item(item_id: str, access_token: str, settings: Settings | None = None) -> dict:
@@ -104,6 +116,7 @@ def get_item(item_id: str, access_token: str, settings: Settings | None = None) 
   <WarningLevel>High</WarningLevel>
   <ItemID>{item_id}</ItemID>
   <DetailLevel>ReturnAll</DetailLevel>
+  <IncludeItemSpecifics>true</IncludeItemSpecifics>
 </GetItemRequest>"""
     root = _post("GetItem", xml_body, access_token, settings)
     item = root.find(f"{{{NS}}}Item")
