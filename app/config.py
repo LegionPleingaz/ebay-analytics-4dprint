@@ -4,6 +4,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.business.thresholds import Thresholds
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -30,6 +32,12 @@ class Settings(BaseSettings):
     alert_email_from: str = ""
     alert_email_to: str = ""
 
+    # Seuils de detection du rapport mensuel (fenetre 28 jours)
+    detect_low_impressions_max: int = 50
+    detect_ctr_min: float = 0.01
+    detect_ctr_min_impressions: int = 500
+    detect_no_sale_views_over: int = 50
+
     app_timezone: str = "Europe/Paris"
 
     log_level: str = "INFO"
@@ -44,6 +52,15 @@ class Settings(BaseSettings):
             if missing:
                 raise ValueError(f"ALERTING_BACKEND=email : variables manquantes {missing}")
         return self
+
+    @property
+    def detection_thresholds(self) -> Thresholds:
+        return Thresholds(
+            low_impressions_max=self.detect_low_impressions_max,
+            ctr_min=self.detect_ctr_min,
+            ctr_min_impressions=self.detect_ctr_min_impressions,
+            no_sale_views_over=self.detect_no_sale_views_over,
+        )
 
     @property
     def tzinfo(self) -> ZoneInfo:

@@ -2,11 +2,18 @@ import datetime as dt
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db.base import Base
 from app.db import models  # noqa: F401
+
+
+@compiles(JSONB, "sqlite")
+def _jsonb_on_sqlite(element, compiler, **kw):
+    return "JSON"
 
 
 @pytest.fixture()
@@ -22,6 +29,7 @@ def db_session():
             models.ChangeLog.__table__,
             models.OAuthToken.__table__,
             models.AlertState.__table__,
+            models.ListingContentSnapshot.__table__,
         ],
     )
     # expire_on_commit=False : coherent avec app.db.base.get_session_factory, et

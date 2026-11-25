@@ -129,6 +129,25 @@ pour cela une surveillance externe de `GET /health/live`.
 - Analyse au niveau de l'annonce : les variantes (couleurs, tailles, lots) ne sont pas suivies. Pour ces annonces, le prix enregistré est indicatif.
 - L'optimisation des annonces est **mensuelle** ; la collecte reste hebdomadaire pour constituer l'historique.
 
+## Rapport mensuel
+
+Détection en lecture seule sur les annonces pro, à partir de la dernière collecte (fenêtre 28 jours, jamais 7 jours).
+
+- Page protégée par `ADMIN_PASSWORD` : `GET /report`
+- Terminal : `python -m app.reports.monthly` (ajouter `--email` pour l'envoyer)
+- Scheduled Task Coolify mensuelle : `python -m app.reports.monthly --email`, fréquence `0 8 1 * *`
+
+| Variable | Défaut | Règle |
+|---|---|---|
+| `DETECT_LOW_IMPRESSIONS_MAX` | 50 | très faible visibilité si impressions ≤ valeur |
+| `DETECT_CTR_MIN` | 0.01 | CTR strictement inférieur |
+| `DETECT_CTR_MIN_IMPRESSIONS` | 500 | impressions minimales pour juger le CTR |
+| `DETECT_NO_SALE_VIEWS_OVER` | 50 | aucune vente avec plus de N vues |
+
+Non évaluées : rupture de stock, en ligne depuis moins de 28 jours, sans donnée de trafic, ou modifiées depuis moins de 14 jours. Le cooldown tient compte de `change_log` et des changements de titre ou de prix constatés entre deux collectes (deux collectes d'une même semaine se remplacent).
+
+Impressions = `LISTING_IMPRESSION_TOTAL` ; les clics sont approchés par `LISTING_VIEWS_TOTAL`.
+
 ## Limites connues
 
 - **Commissions** : pour un vendeur domicilié dans l'UE, la Finances API exige des [signatures numériques](https://developer.ebay.com/develop/guides/digital-signatures-for-apis), pas encore implémentées. En attendant, les runs se terminent en `partial` avec une alerte, `commission_fee` reste vide et `/health` reste `degraded`.
